@@ -8,11 +8,9 @@ CSV、MAT、HDF5形式に変換するためのGUIツール
 """
 
 import os
-import sys
 import re
 import glob
 import numpy as np
-import pandas as pd
 from scipy import io as sio
 import h5py
 import tkinter as tk
@@ -28,6 +26,58 @@ except ImportError:
     ENABLE_DND = False
     print("ドラッグアンドドロップ機能を有効にするには、以下のコマンドを実行してください:")
     print("pip install tkinterdnd2")
+
+# 多言語対応のためのテキスト辞書
+TEXTS = {
+    'ja': {  # 日本語
+        'window_title': 'CESMD V2ファイルコンバーター',
+        'input_dir': '入力ディレクトリ',
+        'output_dir': '出力ディレクトリ',
+        'dnd_enabled': '（ドラッグ&ドロップ可能）',
+        'select_button': '選択',
+        'output_format': '出力形式',
+        'start_conversion': '変換開始',
+        'progress': '進捗状況',
+        'waiting': '待機中...',
+        'searching_files': 'ファイルを検索中...',
+        'no_v2_files': 'V2ファイルが見つかりません',
+        'processing_files': '{0}個のファイルを処理します...',
+        'processing': '処理中: {0} ({1}/{2})',
+        'completed': '完了: {0}個のファイルを変換しました',
+        'completed_with_errors': '完了: {0}個のファイルを変換しました（{1}個のエラー）',
+        'error': 'エラー',
+        'select_dirs': '入力ディレクトリと出力ディレクトリを選択してください',
+        'input_dir_not_exist': '入力ディレクトリが存在しません',
+        'output_dir_not_exist': '出力ディレクトリが存在しません。作成しますか？',
+        'info': '情報',
+        'warning': '警告',
+        'language': '言語'
+    },
+    'en': {  # 英語
+        'window_title': 'CESMD V2 File Converter',
+        'input_dir': 'Input Directory',
+        'output_dir': 'Output Directory',
+        'dnd_enabled': ' (Drag & Drop Enabled)',
+        'select_button': 'Select',
+        'output_format': 'Output Format',
+        'start_conversion': 'Start Conversion',
+        'progress': 'Progress',
+        'waiting': 'Waiting...',
+        'searching_files': 'Searching for files...',
+        'no_v2_files': 'No V2 files found',
+        'processing_files': 'Processing {0} files...',
+        'processing': 'Processing: {0} ({1}/{2})',
+        'completed': 'Completed: Converted {0} files',
+        'completed_with_errors': 'Completed: Converted {0} files ({1} errors)',
+        'error': 'Error',
+        'select_dirs': 'Please select input and output directories',
+        'input_dir_not_exist': 'Input directory does not exist',
+        'output_dir_not_exist': 'Output directory does not exist. Create it?',
+        'info': 'Information',
+        'warning': 'Warning',
+        'language': 'Language'
+    }
+}
 
 class CESMDConverter:
     """CESMDのV2ファイルを処理するためのコンバータークラス"""
@@ -253,33 +303,11 @@ class CESMDConverter:
             return False
     
     def to_csv(self, output_path):
-        """データをCSV形式で保存"""
+        """データをCSV形式で保存（pandasを使わないバージョン）"""
         if self.acceleration is None or self.time_array is None:
             raise ValueError("データがロードされていません")
         
-        # DataFrameを作成
-        data = {
-            'Time': self.time_array,
-            'Acceleration': self.acceleration
-        }
-        
-        # 速度と変位データが存在する場合は追加
-        if self.velocity is not None:
-            if len(self.velocity) == len(self.time_array):
-                data['Velocity'] = self.velocity
-            else:
-                print(f"警告: 速度データの長さが時間配列と一致しません。({len(self.velocity)} != {len(self.time_array)})")
-        
-        if self.displacement is not None:
-            if len(self.displacement) == len(self.time_array):
-                data['Displacement'] = self.displacement
-            else:
-                print(f"警告: 変位データの長さが時間配列と一致しません。({len(self.displacement)} != {len(self.time_array)})")
-        
-        df = pd.DataFrame(data)
-        
-        # メタデータをヘッダーとして追加（コメント行として）
-        # 数値の精度を維持するためにフォーマットを調整
+        # メタデータのフォーマット
         metadata_items = []
         for k, v in self.metadata.items():
             if isinstance(v, float):
@@ -290,10 +318,41 @@ class CESMDConverter:
         
         metadata_str = "# " + ", ".join(metadata_items)
         
-        # CSVに保存 - line_terminatorを指定して空行を防止
+        # CSVファイルを開いて書き込み
         with open(output_path, 'w') as f:
+            # メタデータをヘッダーとして書き込み
             f.write(metadata_str + "\n")
-            df.to_csv(f, index=False, lineterminator='\n')
+            
+            # カラム名を書き込み
+            columns = ['Time', 'Acceleration']
+            
+            # 速度と変位データがあれば列名に追加
+            if self.velocity is not None and len(self.velocity) == len(self.time_array):
+                columns.append('Velocity')
+            else:
+                if self.velocity is not None:
+                    print(f"警告: 速度データの長さが時間配列と一致しません。({len(self.velocity)} != {len(self.time_array)})")
+            
+            if self.displacement is not None and len(self.displacement) == len(self.time_array):
+                columns.append('Displacement')
+            else:
+                if self.displacement is not None:
+                    print(f"警告: 変位データの長さが時間配列と一致しません。({len(self.displacement)} != {len(self.time_array)})")
+            
+            # カラム名行の書き込み
+            f.write(','.join(columns) + '\n')
+            
+            # データ行の書き込み
+            for i in range(len(self.time_array)):
+                row = [str(self.time_array[i]), str(self.acceleration[i])]
+                
+                if 'Velocity' in columns:
+                    row.append(str(self.velocity[i]))
+                
+                if 'Displacement' in columns:
+                    row.append(str(self.displacement[i]))
+                
+                f.write(','.join(row) + '\n')
         
         return True
     
@@ -495,16 +554,20 @@ class ConverterGUI:
     def __init__(self, root):
         """GUIの初期化"""
         self.root = root
-        self.root.title("CESMD V2ファイルコンバーター")
+        self.root.title("CESMD V2 File Converter")  # 初期タイトルを英語に
         self.root.geometry("600x400")
         self.root.resizable(True, True)
         
         self.input_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.output_format = tk.StringVar(value="csv")  # デフォルト値
+        self.language = tk.StringVar(value="en")  # デフォルト言語を英語に設定
         
         # 入力ディレクトリが変更されたときのコールバックを設定
         self.input_dir.trace_add("write", self.on_input_dir_changed)
+        
+        # 言語が変更されたときのコールバックを設定
+        self.language.trace_add("write", self.on_language_changed)
         
         # 入力ディレクトリの自動更新を許可するフラグ
         self.allow_output_sync = True
@@ -513,6 +576,59 @@ class ConverterGUI:
         self.dnd_enabled = ENABLE_DND
         
         self.setup_ui()
+    
+    def get_text(self, key, *args):
+        """現在の言語に基づいてテキストを取得する"""
+        lang = self.language.get()
+        if key in TEXTS[lang]:
+            text = TEXTS[lang][key]
+            if args:
+                return text.format(*args)
+            return text
+        return key  # テキストが見つからない場合はキーをそのまま返す
+    
+    def on_language_changed(self, *args):
+        """言語が変更されたときのコールバック"""
+        # タイトルを更新
+        self.root.title(self.get_text('window_title'))
+        
+        # 各UIコンポーネントのテキストを更新
+        self.update_ui_texts()
+    
+    def update_ui_texts(self):
+        """UIコンポーネントのテキストを現在の言語に更新"""
+        # 入力ディレクトリフレームを更新
+        input_frame_text = self.get_text('input_dir')
+        if self.dnd_enabled:
+            input_frame_text += self.get_text('dnd_enabled')
+        self.input_frame.configure(text=input_frame_text)
+        
+        # 出力ディレクトリフレームを更新
+        output_frame_text = self.get_text('output_dir')
+        if self.dnd_enabled:
+            output_frame_text += self.get_text('dnd_enabled')
+        self.output_frame.configure(text=output_frame_text)
+        
+        # 選択ボタンを更新
+        self.input_select_button.configure(text=self.get_text('select_button'))
+        self.output_select_button.configure(text=self.get_text('select_button'))
+        
+        # 出力形式フレームを更新
+        self.format_frame.configure(text=self.get_text('output_format'))
+        
+        # 変換開始ボタンを更新
+        self.convert_button.configure(text=self.get_text('start_conversion'))
+        
+        # 進捗フレームを更新
+        self.progress_frame.configure(text=self.get_text('progress'))
+        
+        # ステータステキストを更新（現在のステータスを保持）
+        current_status = self.status_var.get()
+        if current_status == TEXTS['ja']['waiting']:
+            self.status_var.set(self.get_text('waiting'))
+        elif current_status.startswith(TEXTS['ja']['processing']):
+            # 処理中のステータスは定期的に更新されるので、ここでは何もしない
+            pass
     
     def on_input_dir_changed(self, *args):
         """入力ディレクトリが変更されたときのコールバック"""
@@ -535,29 +651,38 @@ class ConverterGUI:
         main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # 言語選択
+        language_frame = ttk.LabelFrame(main_frame, text=self.get_text('language'), padding=5)
+        language_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Radiobutton(language_frame, text="日本語", variable=self.language, value="ja").pack(side=tk.LEFT, padx=20)
+        ttk.Radiobutton(language_frame, text="English", variable=self.language, value="en").pack(side=tk.LEFT, padx=20)
+        
         # 入力ディレクトリ選択
-        input_frame_text = "入力ディレクトリ"
+        input_frame_text = self.get_text('input_dir')
         if self.dnd_enabled:
-            input_frame_text += "（ドラッグ&ドロップ可能）"
+            input_frame_text += self.get_text('dnd_enabled')
         
-        input_frame = ttk.LabelFrame(main_frame, text=input_frame_text, padding=5)
-        input_frame.pack(fill=tk.X, pady=5)
+        self.input_frame = ttk.LabelFrame(main_frame, text=input_frame_text, padding=5)
+        self.input_frame.pack(fill=tk.X, pady=5)
         
-        self.input_entry = ttk.Entry(input_frame, textvariable=self.input_dir, width=50)
+        self.input_entry = ttk.Entry(self.input_frame, textvariable=self.input_dir, width=50)
         self.input_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(input_frame, text="選択", command=self.browse_input_dir).pack(side=tk.RIGHT, padx=5)
+        self.input_select_button = ttk.Button(self.input_frame, text=self.get_text('select_button'), command=self.browse_input_dir)
+        self.input_select_button.pack(side=tk.RIGHT, padx=5)
         
         # 出力ディレクトリ選択
-        output_frame_text = "出力ディレクトリ"
+        output_frame_text = self.get_text('output_dir')
         if self.dnd_enabled:
-            output_frame_text += "（ドラッグ&ドロップ可能）"
+            output_frame_text += self.get_text('dnd_enabled')
             
-        output_frame = ttk.LabelFrame(main_frame, text=output_frame_text, padding=5)
-        output_frame.pack(fill=tk.X, pady=5)
+        self.output_frame = ttk.LabelFrame(main_frame, text=output_frame_text, padding=5)
+        self.output_frame.pack(fill=tk.X, pady=5)
         
-        self.output_entry = ttk.Entry(output_frame, textvariable=self.output_dir, width=50)
+        self.output_entry = ttk.Entry(self.output_frame, textvariable=self.output_dir, width=50)
         self.output_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        ttk.Button(output_frame, text="選択", command=self.browse_output_dir).pack(side=tk.RIGHT, padx=5)
+        self.output_select_button = ttk.Button(self.output_frame, text=self.get_text('select_button'), command=self.browse_output_dir)
+        self.output_select_button.pack(side=tk.RIGHT, padx=5)
         
         # ドラッグ&ドロップの設定（利用可能な場合）
         if self.dnd_enabled:
@@ -568,29 +693,30 @@ class ConverterGUI:
             self.output_entry.dnd_bind('<<Drop>>', self.handle_output_drop)
         
         # 出力形式選択
-        format_frame = ttk.LabelFrame(main_frame, text="出力形式", padding=5)
-        format_frame.pack(fill=tk.X, pady=5)
+        self.format_frame = ttk.LabelFrame(main_frame, text=self.get_text('output_format'), padding=5)
+        self.format_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Radiobutton(format_frame, text="CSV", variable=self.output_format, value="csv").pack(side=tk.LEFT, padx=20)
-        ttk.Radiobutton(format_frame, text="MAT", variable=self.output_format, value="mat").pack(side=tk.LEFT, padx=20)
-        ttk.Radiobutton(format_frame, text="HDF5", variable=self.output_format, value="h5").pack(side=tk.LEFT, padx=20)
+        ttk.Radiobutton(self.format_frame, text="CSV", variable=self.output_format, value="csv").pack(side=tk.LEFT, padx=20)
+        ttk.Radiobutton(self.format_frame, text="MAT", variable=self.output_format, value="mat").pack(side=tk.LEFT, padx=20)
+        ttk.Radiobutton(self.format_frame, text="HDF5", variable=self.output_format, value="h5").pack(side=tk.LEFT, padx=20)
         
         # 実行ボタン
         action_frame = ttk.Frame(main_frame)
         action_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Button(action_frame, text="変換開始", command=self.start_conversion).pack(padx=5, pady=5)
+        self.convert_button = ttk.Button(action_frame, text=self.get_text('start_conversion'), command=self.start_conversion)
+        self.convert_button.pack(padx=5, pady=5)
         
         # 進捗表示
-        progress_frame = ttk.LabelFrame(main_frame, text="進捗状況", padding=5)
-        progress_frame.pack(fill=tk.X, pady=5)
+        self.progress_frame = ttk.LabelFrame(main_frame, text=self.get_text('progress'), padding=5)
+        self.progress_frame.pack(fill=tk.X, pady=5)
         
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var, maximum=100)
         self.progress_bar.pack(fill=tk.X, padx=5, pady=5)
         
-        self.status_var = tk.StringVar(value="待機中...")
-        ttk.Label(progress_frame, textvariable=self.status_var).pack(padx=5, pady=5, anchor=tk.W)
+        self.status_var = tk.StringVar(value=self.get_text('waiting'))
+        ttk.Label(self.progress_frame, textvariable=self.status_var).pack(padx=5, pady=5, anchor=tk.W)
     
     def handle_input_drop(self, event):
         """入力ディレクトリエントリーへのドロップイベントハンドラ"""
@@ -619,14 +745,14 @@ class ConverterGUI:
     
     def browse_input_dir(self):
         """入力ディレクトリを選択"""
-        directory = filedialog.askdirectory(title="入力ディレクトリを選択")
+        directory = filedialog.askdirectory(title=self.get_text('input_dir'))
         if directory:
             # 入力ディレクトリをセット（trace_add経由で出力ディレクトリも更新される）
             self.input_dir.set(directory)
     
     def browse_output_dir(self):
         """出力ディレクトリを選択"""
-        directory = filedialog.askdirectory(title="出力ディレクトリを選択")
+        directory = filedialog.askdirectory(title=self.get_text('output_dir'))
         if directory:
             # ユーザーが明示的に出力ディレクトリを設定した場合は、入力ディレクトリとの自動同期を一時的に無効化
             self.allow_output_sync = False
@@ -639,15 +765,15 @@ class ConverterGUI:
         output_format = self.output_format.get()
         
         if not input_dir or not output_dir:
-            messagebox.showerror("エラー", "入力ディレクトリと出力ディレクトリを選択してください")
+            messagebox.showerror(self.get_text('error'), self.get_text('select_dirs'))
             return
         
         if not os.path.exists(input_dir):
-            messagebox.showerror("エラー", "入力ディレクトリが存在しません")
+            messagebox.showerror(self.get_text('error'), self.get_text('input_dir_not_exist'))
             return
         
         if not os.path.exists(output_dir):
-            response = messagebox.askyesno("確認", "出力ディレクトリが存在しません。作成しますか？")
+            response = messagebox.askyesno(self.get_text('error'), self.get_text('output_dir_not_exist'))
             if response:
                 os.makedirs(output_dir)
             else:
@@ -660,19 +786,19 @@ class ConverterGUI:
     
     def convert_files(self, input_dir, output_dir, output_format):
         """ディレクトリ内のすべてのV2ファイルを変換"""
-        self.status_var.set("ファイルを検索中...")
+        self.status_var.set(self.get_text('searching_files'))
         self.progress_var.set(0)
         
         # V2ファイルを検索
         v2_files = glob.glob(os.path.join(input_dir, "*.V2"))
         
         if not v2_files:
-            self.status_var.set("V2ファイルが見つかりません")
-            messagebox.showinfo("情報", "指定されたディレクトリにV2ファイルが見つかりません")
+            self.status_var.set(self.get_text('no_v2_files'))
+            messagebox.showinfo(self.get_text('info'), self.get_text('no_v2_files'))
             return
         
         total_files = len(v2_files)
-        self.status_var.set(f"{total_files}個のファイルを処理します...")
+        self.status_var.set(self.get_text('processing_files', total_files))
         
         # 各ファイルを処理
         success_count = 0
@@ -682,7 +808,7 @@ class ConverterGUI:
             try:
                 file_name = os.path.basename(file_path)
                 
-                self.status_var.set(f"処理中: {file_name} ({i+1}/{total_files})")
+                self.status_var.set(self.get_text('processing', file_name, i+1, total_files))
                 
                 # 複数チャンネルがあるかどうか
                 if CESMDConverter.has_multiple_channels(file_path):
@@ -752,11 +878,11 @@ class ConverterGUI:
         
         # 完了メッセージ
         if error_count == 0:
-            self.status_var.set(f"完了: {success_count}個のファイルを変換しました")
-            messagebox.showinfo("完了", f"{success_count}個のファイルを変換しました")
+            self.status_var.set(self.get_text('completed', success_count))
+            messagebox.showinfo(self.get_text('info'), self.get_text('completed', success_count))
         else:
-            self.status_var.set(f"完了: {success_count}個のファイルを変換しました（{error_count}個のエラー）")
-            messagebox.showwarning("警告", f"{success_count}個のファイルを変換しました（{error_count}個のエラー）")
+            self.status_var.set(self.get_text('completed_with_errors', success_count, error_count))
+            messagebox.showwarning(self.get_text('warning'), self.get_text('completed_with_errors', success_count, error_count))
 
 
 if __name__ == "__main__":
