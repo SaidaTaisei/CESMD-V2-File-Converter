@@ -8,8 +8,19 @@ CSV、MAT、HDF5形式に変換するためのGUIツール
 """
 
 import os
+import sys
 import re
 import glob
+"""
+PyInstaller --windowed 実行時は sys.stdout/sys.stderr が None になるため、
+NumPy/SciPy の import 時に書き込みで AttributeError が発生することがある。
+GUI アプリでは標準出力は不要なため、/dev/null に退避しておく。
+"""
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
+
 import numpy as np
 from scipy import io as sio
 import h5py
@@ -101,6 +112,8 @@ class CESMDConverter:
             self.metadata = {
                 'filename': os.path.basename(filepath),
                 'filepath': filepath,
+                'utc_time': None,
+                'observation_time': None,
             }
             
             # チャンネル番号の初期化（デフォルト値）
@@ -114,8 +127,8 @@ class CESMDConverter:
                     channel_num = int(chan_match.group(1))
                     self.metadata['channel_number'] = channel_num
                 
-                # 観測日時を検索
-                date_match = re.search(r'Rcrd of ([A-Za-z]+) ([A-Za-z]+) (\d+), (\d+) (\d+):(\d+):(\d+\.\d+)', line, re.IGNORECASE)
+                # 観測日時を検索（空白や秒の表記ゆれに対応）
+                date_match = re.search(r'Rcrd\s+of\s+([A-Za-z]+)\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{2,4})\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)', line, re.IGNORECASE)
                 if date_match:
                     observation_time = date_match.group(0)
                     self.metadata['observation_time'] = observation_time
@@ -128,8 +141,8 @@ class CESMDConverter:
                     self.metadata['obs_minute'] = int(date_match.group(6)) # 分
                     self.metadata['obs_second'] = float(date_match.group(7)) # 秒
                 
-                # UTC時間を検索
-                utc_match = re.search(r'Start time:\s+(\d+)/(\d+)/(\d+),\s+(\d+):(\d+):(\d+\.\d+)\s+UTC', line, re.IGNORECASE)
+                # UTC時間を検索（区切り・空白・年2桁/4桁・秒の表記ゆれ、UTC後の括弧も許容）
+                utc_match = re.search(r'Start\s+time:\s+(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)\s+UTC(?:\s*\(.*?\))?', line, re.IGNORECASE)
                 if utc_match:
                     utc_time = utc_match.group(0)
                     self.metadata['utc_time'] = utc_time
@@ -138,17 +151,22 @@ class CESMDConverter:
                     self.metadata['utc_month'] = int(utc_match.group(1))  # 月
                     self.metadata['utc_day'] = int(utc_match.group(2))    # 日
                     
-                    # 年（2桁から4桁に変換）- 1990年代と2000年代の両方に対応
-                    year_2digit = int(utc_match.group(3))
-                    if year_2digit >= 90:  # 1990年代
-                        full_year = 1900 + year_2digit
-                    else:  # 2000年代
-                        full_year = 2000 + year_2digit
+                    # 年（2桁/4桁の両方に対応）
+                    year_text = utc_match.group(3)
+                    if len(year_text) == 2:
+                        year_2digit = int(year_text)
+                        if year_2digit >= 90:  # 1990年代
+                            full_year = 1900 + year_2digit
+                        else:  # 2000年代
+                            full_year = 2000 + year_2digit
+                    else:
+                        full_year = int(year_text)
                     self.metadata['utc_year'] = full_year
                     
                     self.metadata['utc_hour'] = int(utc_match.group(4))   # 時
                     self.metadata['utc_minute'] = int(utc_match.group(5)) # 分
                     self.metadata['utc_second'] = float(utc_match.group(6)) # 秒
+                    
                 
                 if re.search(r'Station No\.', line, re.IGNORECASE):
                     station_info = re.search(r'Station No\.\s+(\d+)\s+([\d\.]+)([NS])\s*,\s*([\d\.]+)([EW])', line, re.IGNORECASE)
@@ -195,6 +213,9 @@ class CESMDConverter:
                     disp_info = re.search(r'Peak displacement\s*=\s*([\d\.\-]+)', line, re.IGNORECASE)
                     if disp_info:
                         self.metadata['peak_displacement'] = float(disp_info.group(1))
+            
+            if not self.metadata.get('utc_time') and not self.metadata.get('observation_time'):
+                raise ValueError("日時が見つかりません")
             
             # データセクションを探索
             accel_start_line = None
