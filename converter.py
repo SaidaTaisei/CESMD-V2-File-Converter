@@ -21,13 +21,15 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, 'w')
 
-import numpy as np
-from scipy import io as sio
-import h5py
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from threading import Thread
 import traceback
+from cesmd_converter import Metadata, WaveformRecord
+from cesmd_converter import parse_v2_file as parse_record_from_v2
+from cesmd_converter import to_csv as export_record_to_csv
+from cesmd_converter import to_mat as export_record_to_mat
+from cesmd_converter import to_hdf5 as export_record_to_hdf5
 
 # TkDNDライブラリのインポートを試みる（インストールされていない場合はスキップ）
 try:
@@ -95,382 +97,61 @@ class CESMDConverter:
     
     def __init__(self):
         """コンバーターを初期化"""
-        self.metadata = {}
+        self.metadata = Metadata()
         self.acceleration = None
         self.velocity = None
         self.displacement = None
         self.sampling_rate = None
         self.time_array = None
+        self.record = WaveformRecord(metadata=self.metadata)
+
+    def _sync_record_from_legacy_fields(self):
+        """既存属性の値を record に同期する（段階移行用）"""
+        if self.record is None:
+            self.record = WaveformRecord()
+        self.record.time = self.time_array
+        self.record.acceleration = self.acceleration
+        self.record.velocity = self.velocity
+        self.record.displacement = self.displacement
+        if self.metadata.get("sampling_rate") is None and self.sampling_rate is not None:
+            self.metadata["sampling_rate"] = self.sampling_rate
+        self.record.metadata = self.metadata
+
+    def _sync_legacy_fields_from_record(self):
+        """record の値を既存属性に同期する（段階移行用）"""
+        if self.record is None:
+            return
+        self.time_array = self.record.time
+        self.acceleration = self.record.acceleration
+        self.velocity = self.record.velocity
+        self.displacement = self.record.displacement
+        self.metadata = self.record.metadata
+        self.sampling_rate = self.metadata.get("sampling_rate")
     
     def parse_v2_file(self, filepath):
         """V2ファイルを解析して必要なデータを抽出する"""
         try:
-            with open(filepath, 'r') as f:
-                content = f.readlines()
-            
-            # メタデータを抽出
-            self.metadata = {
-                'filename': os.path.basename(filepath),
-                'filepath': filepath,
-                'utc_time': None,
-                'observation_time': None,
-            }
-            
-            # チャンネル番号の初期化（デフォルト値）
-            channel_num = 0
-            
-            # 基本情報の抽出（ヘッダーから）
-            for i, line in enumerate(content[:30]):
-                # チャンネル番号を検索
-                chan_match = re.search(r'Chan\s+(\d+)', line, re.IGNORECASE)
-                if chan_match:
-                    channel_num = int(chan_match.group(1))
-                    self.metadata['channel_number'] = channel_num
-                
-                # 観測日時を検索（Rcrd/Record の両方を許容、空白や秒の表記ゆれに対応）
-                date_match = re.search(r'(?:Rcrd|Record)\s+of\s+([A-Za-z]+)\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{2,4})\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)', line, re.IGNORECASE)
-                if date_match:
-                    observation_time = date_match.group(0)
-                    self.metadata['observation_time'] = observation_time
-                    
-                    # 日時を個別に格納
-                    self.metadata['obs_month'] = date_match.group(2)    # 月名
-                    self.metadata['obs_day'] = int(date_match.group(3)) # 日
-                    self.metadata['obs_year'] = int(date_match.group(4)) # 年
-                    self.metadata['obs_hour'] = int(date_match.group(5)) # 時
-                    self.metadata['obs_minute'] = int(date_match.group(6)) # 分
-                    self.metadata['obs_second'] = float(date_match.group(7)) # 秒
-                else:
-                    # 例: "Earthquake of Thu Mar 16, 2000  07:20 PST"（秒なし、タイムゾーン付き）
-                    earth_match = re.search(
-                        r'Earthquake\s+of\s+\w+\s+([A-Za-z]{3,})\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+([A-Z]{2,4})',
-                        line,
-                        re.IGNORECASE
-                    )
-                    if earth_match:
-                        observation_time = earth_match.group(0)
-                        self.metadata['observation_time'] = observation_time
-                        # 個別格納
-                        self.metadata['obs_month'] = earth_match.group(1)  # 月名
-                        self.metadata['obs_day'] = int(earth_match.group(2))
-                        self.metadata['obs_year'] = int(earth_match.group(3))
-                        self.metadata['obs_hour'] = int(earth_match.group(4))
-                        self.metadata['obs_minute'] = int(earth_match.group(5))
-                        # 秒は任意
-                        sec_text = earth_match.group(6)
-                        self.metadata['obs_second'] = float(sec_text) if sec_text is not None else 0.0
-                        self.metadata['obs_timezone'] = earth_match.group(7).upper()
-                
-                # UTC/GMT時間を検索（区切り・空白・年2桁/4桁・秒の有無の表記ゆれ、UTC/GMT後の括弧も許容）
-                utc_match = re.search(r'Start\s+time:\s+(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s+(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+(UTC|GMT)(?:\s*\(.*?\))?', line, re.IGNORECASE)
-                if utc_match:
-                    utc_time = utc_match.group(0)
-                    self.metadata['utc_time'] = utc_time
-                    
-                    # UTC日時を個別に格納
-                    self.metadata['utc_month'] = int(utc_match.group(1))  # 月
-                    self.metadata['utc_day'] = int(utc_match.group(2))    # 日
-                    
-                    # 年（2桁/4桁の両方に対応）
-                    year_text = utc_match.group(3)
-                    if len(year_text) == 2:
-                        year_2digit = int(year_text)
-                        if year_2digit >= 90:  # 1990年代
-                            full_year = 1900 + year_2digit
-                        else:  # 2000年代
-                            full_year = 2000 + year_2digit
-                    else:
-                        full_year = int(year_text)
-                    self.metadata['utc_year'] = full_year
-                    
-                    self.metadata['utc_hour'] = int(utc_match.group(4))   # 時
-                    self.metadata['utc_minute'] = int(utc_match.group(5)) # 分
-                    sec_text = utc_match.group(6)
-                    self.metadata['utc_second'] = float(sec_text) if sec_text is not None else 0.0 # 秒（省略時は0）
-                
-                # 例: "(ORIGIN(BRK): 09/01/94, 15:15:52.3 GMT)" をUTCとして扱う
-                origin_match = re.search(r'\(ORIGIN(?:\([A-Z]+\))?:\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s*(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+(UTC|GMT)\)', line, re.IGNORECASE)
-                if origin_match and not self.metadata.get('utc_time'):
-                    utc_time = origin_match.group(0)
-                    self.metadata['utc_time'] = utc_time
-                    
-                    # UTC日時を個別に格納
-                    self.metadata['utc_month'] = int(origin_match.group(1))  # 月
-                    self.metadata['utc_day'] = int(origin_match.group(2))    # 日
-                    # 年（2桁/4桁の両方に対応）
-                    year_text = origin_match.group(3)
-                    if len(year_text) == 2:
-                        year_2digit = int(year_text)
-                        if year_2digit >= 90:
-                            full_year = 1900 + year_2digit
-                        else:
-                            full_year = 2000 + year_2digit
-                    else:
-                        full_year = int(year_text)
-                    self.metadata['utc_year'] = full_year
-                    self.metadata['utc_hour'] = int(origin_match.group(4))   # 時
-                    self.metadata['utc_minute'] = int(origin_match.group(5)) # 分
-                    sec_text = origin_match.group(6)
-                    self.metadata['utc_second'] = float(sec_text) if sec_text is not None else 0.0
-                    
-                
-                if re.search(r'Station No\.', line, re.IGNORECASE):
-                    station_info = re.search(r'Station No\.\s+(\d+)\s+([\d\.]+)([NS])\s*,\s*([\d\.]+)([EW])', line, re.IGNORECASE)
-                    if station_info:
-                        self.metadata['station_id'] = station_info.group(1)
-                        self.metadata['latitude'] = float(station_info.group(2)) * (1 if station_info.group(3) == 'N' else -1)
-                        self.metadata['longitude'] = float(station_info.group(4)) * (1 if station_info.group(5) == 'E' else -1)
-                
-                # 地震情報を検索
-                if re.search(r'Hypocenter:', line, re.IGNORECASE):
-                    hypocenter_info = line.strip()
-                    self.metadata['hypocenter_info'] = hypocenter_info
-                
-                # マグニチュード情報を検索
-                magnitude_match = re.search(r'ML:\s+(.+)', line, re.IGNORECASE)
-                if magnitude_match:
-                    magnitude_info = magnitude_match.group(1)
-                    self.metadata['magnitude_info'] = magnitude_info
-                
-                if re.search(r'Instr(ument)?\s+Period', line, re.IGNORECASE):
-                    period_info = re.search(r'Instr(ument)?\s+Period\s*=\s*([\d\.]+)\s*sec', line, re.IGNORECASE)
-                    if period_info:
-                        self.metadata['instrument_period'] = float(period_info.group(2))
-                
-                if re.search(r'At equally-spaced intervals of', line, re.IGNORECASE):
-                    interval_info = re.search(r'At equally-spaced intervals of\s*([\d\.]+)\s*sec', line, re.IGNORECASE)
-                    if interval_info:
-                        interval = float(interval_info.group(1))
-                        self.sampling_rate = 1.0 / interval
-                        self.metadata['sampling_rate'] = self.sampling_rate
-                        self.metadata['time_interval'] = interval
-                
-                if re.search(r'Peak acceleration', line, re.IGNORECASE):
-                    acc_info = re.search(r'Peak acceleration\s*=\s*([\d\.\-]+)', line, re.IGNORECASE)
-                    if acc_info:
-                        self.metadata['peak_acceleration'] = float(acc_info.group(1))
-                
-                if re.search(r'Peak\s+velocity', line, re.IGNORECASE):
-                    vel_info = re.search(r'Peak\s+velocity\s*=\s*([\d\.\-]+)', line, re.IGNORECASE)
-                    if vel_info:
-                        self.metadata['peak_velocity'] = float(vel_info.group(1))
-                
-                if re.search(r'Peak displacement', line, re.IGNORECASE):
-                    disp_info = re.search(r'Peak displacement\s*=\s*([\d\.\-]+)', line, re.IGNORECASE)
-                    if disp_info:
-                        self.metadata['peak_displacement'] = float(disp_info.group(1))
-            
-            if not self.metadata.get('utc_time') and not self.metadata.get('observation_time'):
-                raise ValueError("日時が見つかりません")
-            
-            # データセクションを探索
-            accel_start_line = None
-            velocity_start_line = None
-            displ_start_line = None
-            end_of_data_line = None
-            
-            for i, line in enumerate(content):
-                if 'points of accel data equally spaced' in line.lower():
-                    accel_start_line = i + 1
-                elif 'points of veloc data equally spaced' in line.lower():
-                    velocity_start_line = i + 1
-                elif 'points of displ data equally spaced' in line.lower():
-                    displ_start_line = i + 1
-                elif 'End of data for channel' in line or 'end of data for channel' in line.lower():
-                    end_of_data_line = i
-            
-            if accel_start_line is None:
-                raise ValueError("加速度データセクションが見つかりません")
-            
-            # 加速度データセクションの終了位置を決定
-            accel_end_line = velocity_start_line - 1 if velocity_start_line else end_of_data_line
-            
-            # 速度データセクションの終了位置を決定
-            velocity_end_line = displ_start_line - 1 if displ_start_line else end_of_data_line
-            
-            # 変位データセクションの終了位置を決定
-            displ_end_line = end_of_data_line
-            
-            # 加速度データを抽出
-            acceleration_data = []
-            for i in range(accel_start_line, accel_end_line):
-                # line = content[i].strip()
-                # if not line:
-                #     continue
-                
-                # 10文字単位で数値を抽出
-                try:
-                    # values = [float(line[10*j:10*(j+1)].strip()) for j in range(len(line)//10) if line[10*j:10*(j+1)].strip()]
-                    line = content[i]
-                    # print(line)
-                    values = [float(line[10*j:10*(j+1)]) for j in range(8) if len(line[10*j:10+10*j])>3]
-                    acceleration_data.extend(values)
-                except ValueError:
-                    # 数値でない行はスキップ
-                    pass
-            # print(acceleration_data)
-            self.acceleration = np.array(acceleration_data)
-            
-            # 速度データを抽出（存在する場合）
-            self.velocity = None
-            if velocity_start_line and velocity_end_line:
-                velocity_data = []
-                for i in range(velocity_start_line, velocity_end_line):
-                    # line = content[i].strip()
-                    # if not line:
-                    #     continue
-                    
-                    # 10文字単位で数値を抽出
-                    try:
-                        # values = [float(line[10*j:10*(j+1)].strip()) for j in range(len(line)//10) if line[10*j:10*(j+1)].strip()]
-                        line = content[i]
-                        values = [float(line[10*j:10*(j+1)]) for j in range(8) if len(line[10*j:10+10*j])>3]
-                        velocity_data.extend(values)
-                    except ValueError:
-                        # 数値でない行はスキップ
-                        pass
-                
-                self.velocity = np.array(velocity_data)
-            else:
-                print("速度データセクションが見つかりません")
-            
-            # 変位データを抽出（存在する場合）
-            self.displacement = None
-            if displ_start_line and displ_end_line:
-                displacement_data = []
-                for i in range(displ_start_line, displ_end_line):
-                    # line = content[i].strip()
-                    # if not line:
-                    #     continue
-                    
-                    # 10文字単位で数値を抽出
-                    try:
-                        # values = [float(line[10*j:10*(j+1)].strip()) for j in range(len(line)//10) if line[10*j:10*(j+1)].strip()]
-                        line = content[i]
-                        values = [float(line[10*j:10*(j+1)]) for j in range(8) if len(line[10*j:10+10*j])>3]
-                        displacement_data.extend(values)
-                    except ValueError:
-                        # 数値でない行はスキップ
-                        pass
-                
-                self.displacement = np.array(displacement_data)
-            else:
-                print("変位データセクションが見つかりません")
-            
-            # 時間配列を生成
-            if self.sampling_rate is not None:
-                dt = 1.0 / self.sampling_rate
-                n = len(self.acceleration)
-                self.time_array = np.arange(0, n * dt, dt)[:n]
-            
+            self.record = parse_record_from_v2(filepath)
+            self._sync_legacy_fields_from_record()
             return True
-        
         except Exception as e:
             print(f"ファイルの解析エラー: {e}")
             return False
     
     def to_csv(self, output_path):
         """データをCSV形式で保存（pandasを使わないバージョン）"""
-        if self.acceleration is None or self.time_array is None:
-            raise ValueError("データがロードされていません")
-        
-        # メタデータのフォーマット
-        metadata_items = []
-        for k, v in self.metadata.items():
-            if isinstance(v, float):
-                # 浮動小数点数の場合、科学表記法を避けて完全な精度で出力
-                metadata_items.append(f"{k}: {v:.16g}")
-            else:
-                metadata_items.append(f"{k}: {v}")
-        
-        metadata_str = "# " + ", ".join(metadata_items)
-        
-        # CSVファイルを開いて書き込み
-        with open(output_path, 'w') as f:
-            # メタデータをヘッダーとして書き込み
-            f.write(metadata_str + "\n")
-            
-            # カラム名を書き込み
-            columns = ['Time', 'Acceleration']
-            
-            # 速度と変位データがあれば列名に追加
-            if self.velocity is not None and len(self.velocity) == len(self.time_array):
-                columns.append('Velocity')
-            else:
-                if self.velocity is not None:
-                    print(f"警告: 速度データの長さが時間配列と一致しません。({len(self.velocity)} != {len(self.time_array)})")
-            
-            if self.displacement is not None and len(self.displacement) == len(self.time_array):
-                columns.append('Displacement')
-            else:
-                if self.displacement is not None:
-                    print(f"警告: 変位データの長さが時間配列と一致しません。({len(self.displacement)} != {len(self.time_array)})")
-            
-            # カラム名行の書き込み
-            f.write(','.join(columns) + '\n')
-            
-            # データ行の書き込み
-            for i in range(len(self.time_array)):
-                row = [str(self.time_array[i]), str(self.acceleration[i])]
-                
-                if 'Velocity' in columns:
-                    row.append(str(self.velocity[i]))
-                
-                if 'Displacement' in columns:
-                    row.append(str(self.displacement[i]))
-                
-                f.write(','.join(row) + '\n')
-        
-        return True
+        self._sync_record_from_legacy_fields()
+        return export_record_to_csv(self.record, output_path)
     
     def to_mat(self, output_path):
         """データをMAT形式で保存"""
-        if self.acceleration is None or self.time_array is None:
-            raise ValueError("データがロードされていません")
-        
-        # MATLABで使用するための辞書を作成
-        mat_dict = {
-            'time': self.time_array,
-            'acceleration': self.acceleration,
-            'metadata': self.metadata
-        }
-        
-        # 速度と変位データが存在する場合は追加
-        if self.velocity is not None:
-            mat_dict['velocity'] = self.velocity
-        
-        if self.displacement is not None:
-            mat_dict['displacement'] = self.displacement
-        
-        # MATファイルに保存
-        sio.savemat(output_path, mat_dict)
-        
-        return True
+        self._sync_record_from_legacy_fields()
+        return export_record_to_mat(self.record, output_path)
     
     def to_hdf5(self, output_path):
         """データをHDF5形式で保存"""
-        if self.acceleration is None or self.time_array is None:
-            raise ValueError("データがロードされていません")
-        
-        with h5py.File(output_path, 'w') as h5f:
-            # データセットを作成
-            h5f.create_dataset('time', data=self.time_array)
-            h5f.create_dataset('acceleration', data=self.acceleration)
-            
-            # 速度と変位データが存在する場合は追加
-            if self.velocity is not None:
-                h5f.create_dataset('velocity', data=self.velocity)
-            
-            if self.displacement is not None:
-                h5f.create_dataset('displacement', data=self.displacement)
-            
-            # メタデータを属性として追加
-            meta_group = h5f.create_group('metadata')
-            for key, value in self.metadata.items():
-                if isinstance(value, (int, float, str)):
-                    meta_group.attrs[key] = value
-        
-        return True
+        self._sync_record_from_legacy_fields()
+        return export_record_to_hdf5(self.record, output_path)
 
     @staticmethod
     def has_multiple_channels(input_v2_filepath):
