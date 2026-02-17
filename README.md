@@ -14,6 +14,14 @@ A simple GUI tool for converting V2 format files from the Center for Engineering
 - Automatic splitting of V2 files containing multiple channels
 - Custom icons (if Pillow is installed)
 
+## Quick Start (Prebuilt Windows Executable)
+
+You can use the prebuilt Windows executable from the GitHub Release page:
+
+- Download URL: `https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.2.0/CESMD-Converter.exe`
+
+After downloading, run the `.exe` file directly.
+
 ## Dependencies
 
 This tool requires the following libraries:

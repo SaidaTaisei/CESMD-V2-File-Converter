@@ -14,6 +14,14 @@ Center for Engineering Strong Motion Data (CESMD)のV2形式ファイルをCSV�
 - 複数チャンネルを含むV2ファイルの自動分割処理
 - カスタムアイコン（Pillowがインストールされている場合）
 
+## クイックスタート（事前ビルド済みWindows実行ファイル）
+
+GitHub Releases から、事前ビルド済みの Windows 実行ファイル（.exe）を利用できます。
+
+- ダウンロードURL: `https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.2.0/CESMD-Converter.exe`
+
+ダウンロード後は、`.exe` ファイルを直接実行してください。
+
 ## 依存関係
 
 このツールを実行するには以下のライブラリが必要です：
