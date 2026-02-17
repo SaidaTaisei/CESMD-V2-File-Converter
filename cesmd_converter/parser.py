@@ -24,6 +24,11 @@ def parse_v2_file(filepath: str) -> WaveformRecord:
             channel_num = int(chan_match.group(1))
             metadata["channel_number"] = channel_num
 
+        # 例: "(Sta Chn:  5)" や "(Sta Chn: 24)" を観測所通し番号として保持
+        sta_chan_match = re.search(r"Sta\s*Chn\s*:\s*(\d+)", line, re.IGNORECASE)
+        if sta_chan_match:
+            metadata["station_channel_number"] = int(sta_chan_match.group(1))
+
         date_match = re.search(
             r"(?:Rcrd|Record)\s+of\s+([A-Za-z]+)\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{2,4})\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)",
             line,

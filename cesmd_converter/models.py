@@ -17,6 +17,7 @@ class Metadata:
     utc_time: str | None = None
     observation_time: str | None = None
     channel_number: int | None = None
+    station_channel_number: int | None = None
     obs_month: str | None = None
     obs_day: int | None = None
     obs_year: int | None = None

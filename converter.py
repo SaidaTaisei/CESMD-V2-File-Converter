@@ -565,13 +565,8 @@ class ConverterGUI:
                         # ファイルを解析して変換
                         converter = CESMDConverter()
                         if converter.parse_v2_file(_file_path):
-                            # チャンネル番号はファイル名から取得（見つからない場合はエラー）
                             split_file_name = os.path.basename(_file_path)
-                            chan_match = re.search(r'chan\s*_?\s*0*(\d+)', split_file_name, re.IGNORECASE)
-                            if chan_match:
-                                channel_num = int(chan_match.group(1))
-                            else:
-                                raise ValueError(f"ファイル名からチャンネル番号を抽出できません: {_file_path}")
+                            channel_num = self.resolve_channel_number(converter, split_file_name)
                             # 出力ファイル名を生成（シンプル: channel_<number>.<ext>）
                             output_file_name = f"channel_{channel_num}.{output_format}"
                             output_file = os.path.join(output_dir, output_file_name)
@@ -591,12 +586,7 @@ class ConverterGUI:
                     # ファイルを解析して変換
                     converter = CESMDConverter()
                     if converter.parse_v2_file(file_path):
-                        # チャンネル番号はファイル名から取得（見つからない場合はエラー）
-                        chan_match = re.search(r'chan\s*_?\s*0*(\d+)', file_name, re.IGNORECASE)
-                        if chan_match:
-                            channel_num = int(chan_match.group(1))
-                        else:
-                            raise ValueError(f"ファイル名からチャンネル番号を抽出できません: {file_path}")
+                        channel_num = self.resolve_channel_number(converter, file_name)
                         # 出力ファイル名を生成（シンプル: channel_<number>.<ext>）
                         output_file_name = f"channel_{channel_num}.{output_format}"
                         output_file = os.path.join(output_dir, output_file_name)
@@ -628,6 +618,29 @@ class ConverterGUI:
         else:
             self.status_var.set(self.get_text('completed_with_errors', success_count, error_count))
             messagebox.showwarning(self.get_text('warning'), self.get_text('completed_with_errors', success_count, error_count))
+
+    @staticmethod
+    def resolve_channel_number(converter: CESMDConverter, source_name: str) -> int:
+        """
+        出力ファイル名に使うチャンネル番号を決定する。
+        優先順位:
+        1) 入力ファイル名から抽出
+        2) station_channel_number (Sta Chn)
+        3) channel_number (Chan)
+        """
+        chan_match = re.search(r'chan\s*_?\s*0*(\d+)', source_name, re.IGNORECASE)
+        if chan_match:
+            return int(chan_match.group(1))
+
+        station_channel = converter.metadata.get("station_channel_number")
+        if isinstance(station_channel, int):
+            return station_channel
+
+        channel = converter.metadata.get("channel_number")
+        if isinstance(channel, int):
+            return channel
+
+        raise ValueError(f"チャンネル番号を抽出できません: {source_name}")
 
 
 if __name__ == "__main__":
