@@ -86,6 +86,22 @@ V2ファイルには既に加速度、速度、変位のデータが含まれて
 
 3. 変換処理が完了すると結果が表示されます
 
+## ライブラリとしての使い方
+
+このプロジェクトは Python ライブラリとしても利用できます。
+
+```python
+from cesmd_converter import parse_v2_file, to_csv, to_mat, to_hdf5
+
+record = parse_v2_file("CHAN001.V2")
+print(record.metadata.station_id)
+print(record.acceleration[:5])
+
+to_csv(record, "channel_1.csv")
+to_mat(record, "channel_1.mat")
+to_hdf5(record, "channel_1.h5")
+```
+
 ## 出力ファイルの構造
 
 ### CSV形式

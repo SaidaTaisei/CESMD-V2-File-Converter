@@ -86,6 +86,22 @@ V2 files already contain acceleration, velocity, and displacement data, and this
 
 3. When the conversion process is complete, the results will be displayed
 
+## Library Usage
+
+You can also use this project as a Python library.
+
+```python
+from cesmd_converter import parse_v2_file, to_csv, to_mat, to_hdf5
+
+record = parse_v2_file("CHAN001.V2")
+print(record.metadata.station_id)
+print(record.acceleration[:5])
+
+to_csv(record, "channel_1.csv")
+to_mat(record, "channel_1.mat")
+to_hdf5(record, "channel_1.h5")
+```
+
 ## Output File Structure
 
 ### CSV Format
