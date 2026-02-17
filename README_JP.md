@@ -18,7 +18,7 @@ Center for Engineering Strong Motion Data (CESMD)のV2形式ファイルをCSV�
 
 GitHub Releases から、事前ビルド済みの Windows 実行ファイル（.exe）を利用できます。
 
-- ダウンロードURL: `https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.2.0/CESMD-Converter.exe`
+- ダウンロードURL: [CESMD-Converter.exe](https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.2.0/CESMD-Converter.exe)
 
 ダウンロード後は、`.exe` ファイルを直接実行してください。
 
