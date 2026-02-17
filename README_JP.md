@@ -24,20 +24,27 @@ GitHub Releases から、事前ビルド済みの Windows 実行ファイル（.
 
 ## 依存関係
 
-このツールを実行するには以下のライブラリが必要です：
+コアライブラリの依存関係：
 
 * numpy>=1.20.0
-* pandas>=1.3.0
 * scipy>=1.7.0
 * h5py>=3.1.0
-* matplotlib>=3.4.0
+
+GUI追加依存：
+
 * Pillow>=9.0.0（オプション、アイコン表示のために必要）
 * tkinterdnd2>=0.3.0（オプション、ドラッグ&ドロップ機能のために必要）
 
-必要なライブラリは以下のコマンドでインストールできます：
+コア依存のインストール：
 
 ```bash
 pip install -r requirements.txt
+```
+
+GUI依存のインストール：
+
+```bash
+pip install -r requirements-gui.txt
 ```
 
 ## データ抽出の仕組み
@@ -56,19 +63,23 @@ V2ファイルには既に加速度、速度、変位のデータが含まれて
 ### 必要条件
 
 - Python 3.8以上
-- 必要なパッケージ（requirements.txtに記載）
+- 必要なパッケージ（ライブラリは`requirements.txt`、GUIは`requirements-gui.txt`）
 
 ### セットアップ
 
 1. リポジトリをクローンまたはダウンロード
    ```
-   git clone https://github.com/yourusername/cesmd_converter.git
-   cd cesmd_converter
+   git clone https://github.com/SaidaTaisei/CESMD-V2-File-Converter.git
+   cd CESMD-V2-File-Converter
    ```
 
-2. 必要なパッケージをインストール
+2. 依存関係をインストール
    ```
+   # コアライブラリ依存
    pip install -r requirements.txt
+
+   # 任意: GUI依存
+   pip install -r requirements-gui.txt
    ```
 
 ## 使い方
@@ -89,6 +100,24 @@ V2ファイルには既に加速度、速度、変位のデータが含まれて
 ## ライブラリとしての使い方
 
 このプロジェクトは Python ライブラリとしても利用できます。
+
+### インストール（ローカルリポジトリ）
+
+```bash
+pip install .
+```
+
+### インストール（開発モード）
+
+```bash
+pip install -e .
+```
+
+### GitHub URL からインストール
+
+```bash
+pip install "git+https://github.com/SaidaTaisei/CESMD-V2-File-Converter.git"
+```
 
 ```python
 from cesmd_converter import parse_v2_file, to_csv, to_mat, to_hdf5
@@ -131,6 +160,7 @@ to_hdf5(record, "channel_1.h5")
 - V2ファイルのみ対応しています
 - すべてのV2ファイルに速度と変位のデータが含まれているとは限りません
 - 形式によっては一部のメタデータが失われる可能性があります
+- HDF5を厳密比較する場合、環境差で `metadata.filepath` の区切り文字（`\\` / `/`）だけ差分になることがあります
 
 ## ライセンス
 

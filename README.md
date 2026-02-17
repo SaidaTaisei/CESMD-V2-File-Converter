@@ -24,20 +24,27 @@ After downloading, run the `.exe` file directly.
 
 ## Dependencies
 
-This tool requires the following libraries:
+Core library dependencies:
 
 * numpy>=1.20.0
-* pandas>=1.3.0
 * scipy>=1.7.0
 * h5py>=3.1.0
-* matplotlib>=3.4.0
+
+GUI additional dependencies:
+
 * Pillow>=9.0.0 (optional, required for icon display)
 * tkinterdnd2>=0.3.0 (optional, required for drag and drop functionality)
 
-You can install the required libraries with the following command:
+Install core dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Install GUI dependencies:
+
+```bash
+pip install -r requirements-gui.txt
 ```
 
 ## How Data Extraction Works
@@ -56,19 +63,23 @@ V2 files already contain acceleration, velocity, and displacement data, and this
 ### Requirements
 
 - Python 3.8 or higher
-- Required packages (listed in requirements.txt)
+- Required packages (`requirements.txt` for library, `requirements-gui.txt` for GUI)
 
 ### Setup
 
 1. Clone or download the repository
    ```
-   git clone https://github.com/yourusername/cesmd_converter.git
-   cd cesmd_converter
+   git clone https://github.com/SaidaTaisei/CESMD-V2-File-Converter.git
+   cd CESMD-V2-File-Converter
    ```
 
-2. Install the required packages
+2. Install dependencies
    ```
+   # core library dependencies
    pip install -r requirements.txt
+
+   # optional: GUI dependencies
+   pip install -r requirements-gui.txt
    ```
 
 ## How to Use
@@ -89,6 +100,24 @@ V2 files already contain acceleration, velocity, and displacement data, and this
 ## Library Usage
 
 You can also use this project as a Python library.
+
+### Install (local repository)
+
+```bash
+pip install .
+```
+
+### Install (editable mode)
+
+```bash
+pip install -e .
+```
+
+### Install from GitHub
+
+```bash
+pip install "git+https://github.com/SaidaTaisei/CESMD-V2-File-Converter.git"
+```
 
 ```python
 from cesmd_converter import parse_v2_file, to_csv, to_mat, to_hdf5
@@ -131,6 +160,7 @@ This tool automatically detects V2 files containing multiple channels and splits
 - Only V2 files are supported
 - Not all V2 files contain velocity and displacement data
 - Some metadata may be lost depending on the output format
+- In strict HDF5 comparisons, `metadata.filepath` can differ only by path separator style (`\\` vs `/`) across environments
 
 ## License
 

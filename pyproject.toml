@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cesmd-v2-converter-core"
+version = "0.3.0"
+description = "Core parser and exporters for CESMD V2 strong-motion records."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Taisei Saida" }
+]
+dependencies = [
+  "numpy>=1.20.0",
+  "scipy>=1.7.0",
+  "h5py>=3.1.0"
+]
+
+[project.urls]
+Repository = "https://github.com/SaidaTaisei/CESMD-V2-File-Converter"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["cesmd_converter*"]
+exclude = ["build*", "dist*", "__pycache__*"]
