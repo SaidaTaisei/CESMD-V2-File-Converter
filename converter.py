@@ -127,8 +127,8 @@ class CESMDConverter:
                     channel_num = int(chan_match.group(1))
                     self.metadata['channel_number'] = channel_num
                 
-                # 観測日時を検索（空白や秒の表記ゆれに対応）
-                date_match = re.search(r'Rcrd\s+of\s+([A-Za-z]+)\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{2,4})\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)', line, re.IGNORECASE)
+                # 観測日時を検索（Rcrd/Record の両方を許容、空白や秒の表記ゆれに対応）
+                date_match = re.search(r'(?:Rcrd|Record)\s+of\s+([A-Za-z]+)\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{2,4})\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)', line, re.IGNORECASE)
                 if date_match:
                     observation_time = date_match.group(0)
                     self.metadata['observation_time'] = observation_time
@@ -140,9 +140,29 @@ class CESMDConverter:
                     self.metadata['obs_hour'] = int(date_match.group(5)) # 時
                     self.metadata['obs_minute'] = int(date_match.group(6)) # 分
                     self.metadata['obs_second'] = float(date_match.group(7)) # 秒
+                else:
+                    # 例: "Earthquake of Thu Mar 16, 2000  07:20 PST"（秒なし、タイムゾーン付き）
+                    earth_match = re.search(
+                        r'Earthquake\s+of\s+\w+\s+([A-Za-z]{3,})\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+([A-Z]{2,4})',
+                        line,
+                        re.IGNORECASE
+                    )
+                    if earth_match:
+                        observation_time = earth_match.group(0)
+                        self.metadata['observation_time'] = observation_time
+                        # 個別格納
+                        self.metadata['obs_month'] = earth_match.group(1)  # 月名
+                        self.metadata['obs_day'] = int(earth_match.group(2))
+                        self.metadata['obs_year'] = int(earth_match.group(3))
+                        self.metadata['obs_hour'] = int(earth_match.group(4))
+                        self.metadata['obs_minute'] = int(earth_match.group(5))
+                        # 秒は任意
+                        sec_text = earth_match.group(6)
+                        self.metadata['obs_second'] = float(sec_text) if sec_text is not None else 0.0
+                        self.metadata['obs_timezone'] = earth_match.group(7).upper()
                 
-                # UTC時間を検索（区切り・空白・年2桁/4桁・秒の表記ゆれ、UTC後の括弧も許容）
-                utc_match = re.search(r'Start\s+time:\s+(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s+(\d{1,2}):(\d{2}):\s*(\d{1,2}(?:\.\d+)?)\s+UTC(?:\s*\(.*?\))?', line, re.IGNORECASE)
+                # UTC/GMT時間を検索（区切り・空白・年2桁/4桁・秒の有無の表記ゆれ、UTC/GMT後の括弧も許容）
+                utc_match = re.search(r'Start\s+time:\s+(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s+(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+(UTC|GMT)(?:\s*\(.*?\))?', line, re.IGNORECASE)
                 if utc_match:
                     utc_time = utc_match.group(0)
                     self.metadata['utc_time'] = utc_time
@@ -165,7 +185,33 @@ class CESMDConverter:
                     
                     self.metadata['utc_hour'] = int(utc_match.group(4))   # 時
                     self.metadata['utc_minute'] = int(utc_match.group(5)) # 分
-                    self.metadata['utc_second'] = float(utc_match.group(6)) # 秒
+                    sec_text = utc_match.group(6)
+                    self.metadata['utc_second'] = float(sec_text) if sec_text is not None else 0.0 # 秒（省略時は0）
+                
+                # 例: "(ORIGIN(BRK): 09/01/94, 15:15:52.3 GMT)" をUTCとして扱う
+                origin_match = re.search(r'\(ORIGIN(?:\([A-Z]+\))?:\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4}),\s*(\d{1,2}):(\d{2})(?::\s*(\d{1,2}(?:\.\d+)?))?\s+(UTC|GMT)\)', line, re.IGNORECASE)
+                if origin_match and not self.metadata.get('utc_time'):
+                    utc_time = origin_match.group(0)
+                    self.metadata['utc_time'] = utc_time
+                    
+                    # UTC日時を個別に格納
+                    self.metadata['utc_month'] = int(origin_match.group(1))  # 月
+                    self.metadata['utc_day'] = int(origin_match.group(2))    # 日
+                    # 年（2桁/4桁の両方に対応）
+                    year_text = origin_match.group(3)
+                    if len(year_text) == 2:
+                        year_2digit = int(year_text)
+                        if year_2digit >= 90:
+                            full_year = 1900 + year_2digit
+                        else:
+                            full_year = 2000 + year_2digit
+                    else:
+                        full_year = int(year_text)
+                    self.metadata['utc_year'] = full_year
+                    self.metadata['utc_hour'] = int(origin_match.group(4))   # 時
+                    self.metadata['utc_minute'] = int(origin_match.group(5)) # 分
+                    sec_text = origin_match.group(6)
+                    self.metadata['utc_second'] = float(sec_text) if sec_text is not None else 0.0
                     
                 
                 if re.search(r'Station No\.', line, re.IGNORECASE):
@@ -838,16 +884,15 @@ class ConverterGUI:
                         # ファイルを解析して変換
                         converter = CESMDConverter()
                         if converter.parse_v2_file(_file_path):
-                            # チャンネル番号があれば使用、なければファイル名から推測
-                            channel_num = converter.metadata.get('channel_number', 0)
-                            if channel_num == 0:
-                                # ファイル名からチャンネル番号を探す試み
-                                chan_match = re.search(r'CHAN(\d+)', file_name, re.IGNORECASE)
-                                if chan_match:
-                                    channel_num = int(chan_match.group(1))
-                            
-                            # 出力ファイル名を生成（channel_XXX.拡張子 形式）
-                            output_file_name = f"channel_{channel_num:03d}.{output_format}"
+                            # チャンネル番号はファイル名から取得（見つからない場合はエラー）
+                            split_file_name = os.path.basename(_file_path)
+                            chan_match = re.search(r'chan\s*_?\s*0*(\d+)', split_file_name, re.IGNORECASE)
+                            if chan_match:
+                                channel_num = int(chan_match.group(1))
+                            else:
+                                raise ValueError(f"ファイル名からチャンネル番号を抽出できません: {_file_path}")
+                            # 出力ファイル名を生成（シンプル: channel_<number>.<ext>）
+                            output_file_name = f"channel_{channel_num}.{output_format}"
                             output_file = os.path.join(output_dir, output_file_name)
                             
                             # 選択された形式で保存
@@ -865,16 +910,14 @@ class ConverterGUI:
                     # ファイルを解析して変換
                     converter = CESMDConverter()
                     if converter.parse_v2_file(file_path):
-                        # チャンネル番号があれば使用、なければファイル名から推測
-                        channel_num = converter.metadata.get('channel_number', 0)
-                        if channel_num == 0:
-                            # ファイル名からチャンネル番号を探す試み
-                            chan_match = re.search(r'CHAN(\d+)', file_name, re.IGNORECASE)
-                            if chan_match:
-                                channel_num = int(chan_match.group(1))
-                        
-                        # 出力ファイル名を生成（channel_XXX.拡張子 形式）
-                        output_file_name = f"channel_{channel_num:03d}.{output_format}"
+                        # チャンネル番号はファイル名から取得（見つからない場合はエラー）
+                        chan_match = re.search(r'chan\s*_?\s*0*(\d+)', file_name, re.IGNORECASE)
+                        if chan_match:
+                            channel_num = int(chan_match.group(1))
+                        else:
+                            raise ValueError(f"ファイル名からチャンネル番号を抽出できません: {file_path}")
+                        # 出力ファイル名を生成（シンプル: channel_<number>.<ext>）
+                        output_file_name = f"channel_{channel_num}.{output_format}"
                         output_file = os.path.join(output_dir, output_file_name)
                         
                         # 選択された形式で保存
