@@ -18,7 +18,7 @@ A simple GUI tool for converting V2 format files from the Center for Engineering
 
 You can use the prebuilt Windows executable from the GitHub Release page:
 
-- Download URL: [CESMD-Converter.exe](https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.2.0/CESMD-Converter.exe)
+- Download URL: [CESMD-Converter.exe](https://github.com/SaidaTaisei/CESMD-V2-File-Converter/releases/download/v0.3.1/CESMD-Converter.exe)
 
 After downloading, run the `.exe` file directly.
 

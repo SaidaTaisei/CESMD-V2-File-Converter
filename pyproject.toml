@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cesmd-v2-converter-core"
-version = "0.3.0"
+version = "0.3.1"
 description = "Core parser and exporters for CESMD V2 strong-motion records."
 readme = "README.md"
 requires-python = ">=3.10"
